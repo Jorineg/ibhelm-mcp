@@ -1,0 +1,6 @@
+fastmcp>=2.14.0
+asyncpg>=0.29.0
+python-dotenv>=1.0.0
+RestrictedPython>=7.0
+
+
