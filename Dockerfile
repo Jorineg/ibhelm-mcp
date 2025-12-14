@@ -1,12 +1,8 @@
-FROM python:3.12-slim
+FROM jorineg/ibhelm-base:latest
 
-WORKDIR /app
-
-# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application
 COPY server.py config.py auth.py database.py ./
 COPY tools/ ./tools/
 
@@ -14,12 +10,8 @@ COPY tools/ ./tools/
 RUN useradd -m -u 1000 mcp && chown -R mcp:mcp /app
 USER mcp
 
-# Expose port
 EXPOSE 8080
 
-# Run the server
+ENV SERVICE_NAME=mcp
+
 CMD ["python", "server.py"]
-
-
-
-
