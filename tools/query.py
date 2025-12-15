@@ -1,5 +1,5 @@
 """
-Direct SQL query tool.
+Direct SQL query tool with dynamic docstring injection.
 """
 
 from typing import Literal
@@ -7,19 +7,8 @@ from pydantic import Field
 
 from database import execute_query
 
-
-def register_query_tools(mcp):
-    """Register the query_database tool."""
-    
-    @mcp.tool()
-    async def query_database(
-        query: str = Field(description="SQL SELECT query. Only SELECT/WITH statements allowed."),
-        format: Literal["json", "toon"] = Field(default="toon", description="Output format - 'json' or 'toon' (compact tabular, default)."),
-        include_stats: bool = Field(default=False, description="Include column statistics (unique counts, min/max, etc.)"),
-        limit: int | None = Field(default=None, description="Override LIMIT in query (max 1000). Applied if query has no LIMIT."),
-        full_output: bool = Field(default=False, description="If True, disable truncation (return all rows). Use carefully!")
-    ) -> dict:
-        """Execute a READ-ONLY SQL query against the IBHelm database.
+# Base docstring template - {schema} will be injected at registration time
+QUERY_DOCSTRING_TEMPLATE = """Execute a READ-ONLY SQL query against the IBHelm database.
     
     Returns:
         - rows/data: Query results (format depends on 'format' param)
@@ -57,6 +46,24 @@ def register_query_tools(mcp):
     ORDER BY a.size DESC LIMIT 20
     ```
         """
+
+
+def register_query_tools(mcp, schema_text: str | None = None):
+    """Register the query_database tool with optional dynamic docstring injection."""
+    
+    async def query_database(
+        query: str = Field(description="SQL SELECT query. Only SELECT/WITH statements allowed."),
+        format: Literal["json", "toon"] = Field(default="toon", description="Output format - 'json' or 'toon' (compact tabular, default)."),
+        include_stats: bool = Field(default=False, description="Include column statistics (unique counts, min/max, etc.)"),
+        limit: int | None = Field(default=None, description="Override LIMIT in query (max 1000). Applied if query has no LIMIT."),
+        full_output: bool = Field(default=False, description="If True, disable truncation (return all rows). Use carefully!")
+    ) -> dict:
         return await execute_query(query, format=format, include_stats=include_stats, 
                                     limit=limit, full_output=full_output)
+    
+    # Inject dynamic content into docstring before registration
+    query_database.__doc__ = QUERY_DOCSTRING_TEMPLATE
+    
+    # Register the tool with modified docstring
+    mcp.tool()(query_database)
 

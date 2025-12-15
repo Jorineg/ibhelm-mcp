@@ -16,6 +16,7 @@ Structure:
 """
 
 import os
+import asyncio
 from fastmcp import FastMCP
 
 from auth import create_auth_provider
@@ -23,11 +24,22 @@ from tools import register_all_tools
 
 
 # =============================================================================
-# MCP Server
+# Dynamic Schema Loading
 # =============================================================================
-mcp = FastMCP(
-    name="IBHelm Database Reader",
-    instructions="""Read-only database access for IBHelm (Teamwork tasks, Missive emails, Craft docs, files).
+def fetch_schema_sync() -> str:
+    """Fetch database schema synchronously at startup."""
+    from tools.schema import _get_schema_internal
+    try:
+        result = asyncio.run(_get_schema_internal(compact=True))
+        return result.get("schema", "Schema unavailable")
+    except Exception as e:
+        return f"Schema loading failed: {e}"
+
+
+def build_instructions() -> str:
+    """Build server instructions with embedded schema."""
+    schema = fetch_schema_sync()
+    return f"""Read-only database access for IBHelm (Teamwork tasks, Missive emails, Craft docs, files).
 
 **🚀 Quickstart - mv_unified_items (Master View):**
 Search everything in one query! Combines tasks, emails, files, craft docs.
@@ -48,7 +60,21 @@ ORDER BY sort_date DESC LIMIT 20
 - Use ILIKE for case-insensitive search (better index usage than LOWER())
 - Filter by indexed columns: id, *_id foreign keys, created_at, email
 - Use LIMIT to avoid large result sets
-- Complex JOINs, CTEs, subqueries, array_agg all work well""",
+- Complex JOINs, CTEs, subqueries, array_agg all work well
+
+---
+## Full Database Schema
+
+{schema}
+"""
+
+
+# =============================================================================
+# MCP Server
+# =============================================================================
+mcp = FastMCP(
+    name="IBHelm Database Reader",
+    instructions=build_instructions(),
     auth=create_auth_provider(),
 )
 
