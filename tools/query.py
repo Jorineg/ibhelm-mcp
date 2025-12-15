@@ -1,14 +1,40 @@
 """
-Direct SQL query tool with dynamic docstring injection.
+Direct SQL query tool with embedded schema.
 """
 
+import asyncio
 from typing import Literal
 from pydantic import Field
 
 from database import execute_query
 
-# Base docstring template - {schema} will be injected at registration time
-QUERY_DOCSTRING_TEMPLATE = """Execute a READ-ONLY SQL query against the IBHelm database.
+
+def _fetch_schema_for_docstring() -> str:
+    """Fetch schema synchronously for embedding in docstring."""
+    from tools.schema import _get_schema_internal
+    try:
+        result = asyncio.run(_get_schema_internal(compact=True))
+        return result.get("schema", "Schema unavailable")
+    except Exception as e:
+        return f"Schema loading failed: {e}"
+
+
+def register_query_tools(mcp):
+    """Register the query_database tool with embedded schema in docstring."""
+    
+    schema = _fetch_schema_for_docstring()
+    
+    async def query_database(
+        query: str = Field(description="SQL SELECT query. Only SELECT/WITH statements allowed."),
+        format: Literal["json", "toon"] = Field(default="toon", description="Output format - 'json' or 'toon' (compact tabular, default)."),
+        include_stats: bool = Field(default=False, description="Include column statistics (unique counts, min/max, etc.)"),
+        limit: int | None = Field(default=None, description="Override LIMIT in query (max 1000). Applied if query has no LIMIT."),
+        full_output: bool = Field(default=False, description="If True, disable truncation (return all rows). Use carefully!")
+    ) -> dict:
+        return await execute_query(query, format=format, include_stats=include_stats, 
+                                    limit=limit, full_output=full_output)
+    
+    query_database.__doc__ = f"""Execute a READ-ONLY SQL query against the IBHelm database.
     
     Returns:
         - rows/data: Query results (format depends on 'format' param)
@@ -45,25 +71,12 @@ QUERY_DOCSTRING_TEMPLATE = """Execute a READ-ONLY SQL query against the IBHelm d
     WHERE a.size > 10000000
     ORDER BY a.size DESC LIMIT 20
     ```
+
+---
+## Full Database Schema
+
+{schema}
         """
-
-
-def register_query_tools(mcp, schema_text: str | None = None):
-    """Register the query_database tool with optional dynamic docstring injection."""
     
-    async def query_database(
-        query: str = Field(description="SQL SELECT query. Only SELECT/WITH statements allowed."),
-        format: Literal["json", "toon"] = Field(default="toon", description="Output format - 'json' or 'toon' (compact tabular, default)."),
-        include_stats: bool = Field(default=False, description="Include column statistics (unique counts, min/max, etc.)"),
-        limit: int | None = Field(default=None, description="Override LIMIT in query (max 1000). Applied if query has no LIMIT."),
-        full_output: bool = Field(default=False, description="If True, disable truncation (return all rows). Use carefully!")
-    ) -> dict:
-        return await execute_query(query, format=format, include_stats=include_stats, 
-                                    limit=limit, full_output=full_output)
-    
-    # Inject dynamic content into docstring before registration
-    query_database.__doc__ = QUERY_DOCSTRING_TEMPLATE
-    
-    # Register the tool with modified docstring
     mcp.tool()(query_database)
 
