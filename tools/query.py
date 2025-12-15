@@ -2,19 +2,112 @@
 Direct SQL query tool with embedded schema.
 """
 
-import asyncio
+import psycopg2
 from typing import Literal
 from pydantic import Field
 
+from config import DATABASE_URL, abbrev_type
 from database import execute_query
 
 
-def _fetch_schema_for_docstring() -> str:
-    """Fetch schema synchronously for embedding in docstring."""
-    from tools.schema import _get_schema_internal
+def _fetch_schema_sync() -> str:
+    """Fetch schema using sync psycopg2 (doesn't pollute async pool)."""
     try:
-        result = asyncio.run(_get_schema_internal(compact=True))
-        return result.get("schema", "Schema unavailable")
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        # Get columns
+        cur.execute("""
+            SELECT t.table_schema, t.table_name, c.column_name, c.data_type, c.udt_name,
+                   c.character_maximum_length
+            FROM information_schema.tables t
+            JOIN information_schema.columns c ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+            WHERE t.table_schema IN ('public', 'teamwork', 'missive') AND t.table_type IN ('BASE TABLE', 'VIEW')
+            ORDER BY t.table_schema, t.table_name, c.ordinal_position
+        """)
+        columns = cur.fetchall()
+        
+        # Get PKs
+        cur.execute("""
+            SELECT tc.table_schema, tc.table_name, kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+            WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema IN ('public', 'teamwork', 'missive')
+        """)
+        pk_set = {(r[0], r[1], r[2]) for r in cur.fetchall()}
+        
+        # Get FKs
+        cur.execute("""
+            SELECT tc.table_schema, tc.table_name, kcu.column_name, ccu.table_name, ccu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
+            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema IN ('public', 'teamwork', 'missive')
+        """)
+        fk_map = {(r[0], r[1], r[2]): f"{r[3]}.{r[4]}" for r in cur.fetchall()}
+        
+        # Composite PKs
+        cur.execute("""
+            SELECT tc.table_schema, tc.table_name, array_agg(kcu.column_name ORDER BY kcu.ordinal_position)
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+            WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema IN ('public', 'teamwork', 'missive')
+            GROUP BY tc.table_schema, tc.table_name HAVING COUNT(*) > 1
+        """)
+        cpk_map = {(r[0], r[1]): r[2] for r in cur.fetchall()}
+        
+        conn.close()
+        
+        # Build compact output
+        output = []
+        current_schema = current_table = None
+        table_cols = []
+        
+        for col in columns:
+            s, t, col_name, data_type, udt_name, char_max = col
+            
+            if s != current_schema:
+                if current_table and table_cols:
+                    cpk = cpk_map.get((current_schema, current_table))
+                    line = f"**{current_table}**: " + ", ".join(table_cols)
+                    if cpk:
+                        line += f" [pk: {', '.join(cpk)}]"
+                    output.append(line)
+                if current_schema:
+                    output.append("")
+                output.append(f"# {s}")
+                output.append("")
+                current_schema, current_table, table_cols = s, None, []
+            
+            if t != current_table:
+                if current_table and table_cols:
+                    cpk = cpk_map.get((current_schema, current_table))
+                    line = f"**{current_table}**: " + ", ".join(table_cols)
+                    if cpk:
+                        line += f" [pk: {', '.join(cpk)}]"
+                    output.append(line)
+                current_table, table_cols = t, []
+            
+            col_type = abbrev_type(data_type, udt_name)
+            if char_max:
+                col_type += f"({char_max})"
+            
+            col_str = f"{col_name} {col_type}"
+            if (s, t, col_name) in pk_set and (s, t) not in cpk_map:
+                col_str += " pk"
+            fk_ref = fk_map.get((s, t, col_name))
+            if fk_ref:
+                col_str += f" (→{fk_ref})"
+            table_cols.append(col_str)
+        
+        if current_table and table_cols:
+            cpk = cpk_map.get((current_schema, current_table))
+            line = f"**{current_table}**: " + ", ".join(table_cols)
+            if cpk:
+                line += f" [pk: {', '.join(cpk)}]"
+            output.append(line)
+        
+        return "\n".join(output)
     except Exception as e:
         return f"Schema loading failed: {e}"
 
@@ -22,7 +115,7 @@ def _fetch_schema_for_docstring() -> str:
 def register_query_tools(mcp):
     """Register the query_database tool with embedded schema in docstring."""
     
-    schema = _fetch_schema_for_docstring()
+    schema = _fetch_schema_sync()
     
     async def query_database(
         query: str = Field(description="SQL SELECT query. Only SELECT/WITH statements allowed."),
