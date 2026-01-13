@@ -107,10 +107,10 @@ Returns:
             
             # Recent files
             files = await conn.fetch("""
-                SELECT f.id, f.filename, f.storage_path, f.db_created_at
+                SELECT f.id, f.full_path, fc.storage_path, f.db_created_at
                 FROM public.files f
-                JOIN public.project_files pf ON f.id = pf.file_id
-                WHERE pf.tw_project_id = $1
+                JOIN public.file_contents fc ON f.content_hash = fc.content_hash
+                WHERE f.project_id = $1 AND f.deleted_at IS NULL
                 ORDER BY f.db_created_at DESC LIMIT 5
             """, pid)
             
@@ -135,9 +135,9 @@ Returns:
                     JOIN public.project_conversations pc ON m.conversation_id = pc.m_conversation_id
                     WHERE pc.tw_project_id = $1
                     UNION ALL
-                    SELECT 'file', f.filename, f.db_created_at
-                    FROM public.files f JOIN public.project_files pf ON f.id = pf.file_id
-                    WHERE pf.tw_project_id = $1
+                    SELECT 'file', f.full_path, f.db_created_at
+                    FROM public.files f
+                    WHERE f.project_id = $1 AND f.deleted_at IS NULL
                 )
                 SELECT DISTINCT ON (DATE_TRUNC('hour', ts), type, LEFT(title, 50)) 
                        type, title, ts
