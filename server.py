@@ -20,11 +20,9 @@ from fastmcp import FastMCP
 
 from auth import create_auth_provider
 from tools import register_all_tools
-from logging_conf import logger
-
 
 # =============================================================================
-# MCP Server
+# MCP Server (create BEFORE logging setup)
 # =============================================================================
 mcp = FastMCP(
     name="IBHelm Database Reader",
@@ -34,9 +32,11 @@ Use the query_database tool to execute SQL queries - it includes the full databa
     auth=create_auth_provider(),
 )
 
-# Register all tools
 register_all_tools(mcp)
 
+# NOW setup logging (after MCP creation)
+from logging_conf import setup_betterstack, logger
+setup_betterstack()
 
 # =============================================================================
 # Run Server
