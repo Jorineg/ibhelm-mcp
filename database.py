@@ -6,6 +6,7 @@ Database utilities for IBHelm MCP Server.
 - TOON format conversion
 """
 
+import logging
 import re
 import time
 import asyncpg
@@ -15,6 +16,8 @@ from config import (
     DATABASE_URL, MAX_RESPONSE_CHARS, MAX_CELL_CHARS, 
     CELL_PREVIEW_CHARS, MIN_ROWS_FOR_PREVIEW
 )
+
+logger = logging.getLogger("ibhelm.mcp.database")
 
 
 # =============================================================================
@@ -27,7 +30,9 @@ async def get_pool() -> asyncpg.Pool:
     """Get or create the database connection pool."""
     global _pool
     if _pool is None:
+        logger.info("Creating database connection pool")
         _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5, command_timeout=30)
+        logger.info("Database pool created (min=1, max=5)")
     return _pool
 
 
@@ -263,9 +268,12 @@ async def execute_query(
     full_output: bool = False
 ) -> dict:
     """Execute query with smart truncation and TOON format."""
+    query_preview = query[:100].replace('\n', ' ') + ('...' if len(query) > 100 else '')
+    logger.debug(f"Executing query: {query_preview}")
     
     is_valid, error = validate_query(query)
     if not is_valid:
+        logger.warning(f"Query validation failed: {error}")
         return {"error": error}
     
     # Auto-add LIMIT if not present and not forcing full
@@ -280,6 +288,7 @@ async def execute_query(
             start_time = time.time()
             results = await conn.fetch(query)
             query_time_ms = round((time.time() - start_time) * 1000, 2)
+            logger.info(f"Query executed: {len(results)} rows in {query_time_ms}ms")
             
             # Convert to dicts
             rows = []
@@ -312,5 +321,6 @@ async def execute_query(
                 return {"rows": truncated_rows, "meta": meta}
                 
     except Exception as e:
+        logger.error(f"Query failed: {e}")
         return {"error": enhance_error(str(e))}
 

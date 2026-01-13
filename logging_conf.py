@@ -23,7 +23,7 @@ def setup_betterstack():
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
     
-    for name in ['FastMCP', 'uvicorn', 'uvicorn.error', 'uvicorn.access', 'ibhelm.mcp', 'mcp']:
+    for name in ['FastMCP', 'uvicorn', 'uvicorn.error', 'uvicorn.access', 'ibhelm.mcp', 'ibhelm.mcp.auth', 'ibhelm.mcp.database', 'ibhelm.mcp.tools', 'mcp']:
         logging.getLogger(name).addHandler(handler)
     
     _betterstack_initialized = True

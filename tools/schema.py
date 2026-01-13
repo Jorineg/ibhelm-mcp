@@ -2,10 +2,13 @@
 Schema exploration tools.
 """
 
+import logging
 from pydantic import Field
 
 from config import abbrev_type
 from database import get_pool, execute_query
+
+logger = logging.getLogger("ibhelm.mcp.tools")
 
 
 async def _get_schema_internal(schema: str | None = None, table: str | None = None, compact: bool = True) -> dict:
@@ -179,6 +182,7 @@ Example:
 - `search_locations_autocomplete(text)` → matching locations
 - `get_sync_status()` → data freshness per source
         """
+        logger.info(f"get_schema: schema={schema}, table={table}, compact={compact}")
         return await _get_schema_internal(schema, table, compact)
 
     @mcp.tool()
@@ -197,6 +201,7 @@ Returns:
     - sample: First N rows from the table
     - stats: Row count and column value distributions
         """
+        logger.info(f"describe_table: {schema}.{table}, sample_rows={sample_rows}")
         valid_schemas = ('public', 'teamwork', 'missive')
         if schema not in valid_schemas:
             return {"error": f"❌ Invalid schema: '{schema}'\n\n💡 Valid schemas: {', '.join(valid_schemas)}"}

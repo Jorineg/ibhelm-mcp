@@ -2,9 +2,12 @@
 Search convenience tools for emails and tasks.
 """
 
+import logging
 from pydantic import Field
 
 from database import execute_query
+
+logger = logging.getLogger("ibhelm.mcp.tools")
 
 
 def register_search_tools(mcp):
@@ -31,6 +34,7 @@ Examples:
     - Emails with attachments > 40MB: min_attachment_size=40000000
     - Emails with at least 3 PDFs: min_attachments=3, attachment_type="pdf"
         """
+        logger.info(f"search_emails: subject={subject}, from={from_email}, text={search_text}, limit={limit}")
         limit = min(limit, 200)
         conditions = []
         joins = ["FROM missive.messages m", "LEFT JOIN missive.contacts c ON m.from_contact_id = c.id"]
@@ -86,6 +90,7 @@ Examples:
 
 **Index Tips:** Filter by project_id, status, or assignee for best performance.
         """
+        logger.info(f"search_tasks: project={project_name}, status={status}, text={search_text}, limit={limit}")
         limit = min(limit, 200)
         conditions = []
         joins = ["FROM teamwork.tasks t", "LEFT JOIN teamwork.projects p ON t.project_id = p.id",

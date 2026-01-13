@@ -4,6 +4,7 @@ Authentication for IBHelm MCP Server.
 - JWT verification for HS256 tokens
 """
 
+import logging
 import jwt as pyjwt
 from pydantic import AnyHttpUrl
 from fastmcp.server.auth import OAuthProxy, TokenVerifier, AccessToken
@@ -13,17 +14,24 @@ from config import (
     MCP_SERVER_URL, SUPABASE_JWT_SECRET
 )
 
+logger = logging.getLogger("ibhelm.mcp.auth")
+
 
 class SupabaseTokenVerifier(TokenVerifier):
     """Verify Supabase HS256 tokens."""
     
     async def verify_token(self, token: str) -> AccessToken | None:
+        token_preview = f"{token[:20]}..." if len(token) > 20 else token
+        logger.debug(f"Verifying token: {token_preview}")
         try:
             decoded = pyjwt.decode(
                 token, SUPABASE_JWT_SECRET or "", 
                 algorithms=["HS256"], audience="authenticated",
                 options={"verify_signature": bool(SUPABASE_JWT_SECRET), "verify_iss": False}
             )
+            email = decoded.get('email', 'unknown')
+            sub = decoded.get('sub', 'unknown')
+            logger.info(f"Token verified: user={email} sub={sub}")
             return AccessToken(
                 token=token, 
                 client_id=decoded.get('sub') or "anon",
@@ -32,7 +40,14 @@ class SupabaseTokenVerifier(TokenVerifier):
                 resource=f"{MCP_SERVER_URL}/mcp",
                 claims={"sub": decoded.get('sub'), "email": decoded.get('email')}
             )
-        except Exception:
+        except pyjwt.ExpiredSignatureError:
+            logger.warning(f"Token expired: {token_preview}")
+            return None
+        except pyjwt.InvalidTokenError as e:
+            logger.warning(f"Invalid token: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Token verification failed: {e}")
             return None
 
 

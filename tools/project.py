@@ -2,9 +2,12 @@
 Project summary and dashboard tools.
 """
 
+import logging
 from pydantic import Field
 
 from database import get_pool, execute_query
+
+logger = logging.getLogger("ibhelm.mcp.tools")
 
 
 def register_project_tools(mcp):
@@ -20,6 +23,7 @@ def register_project_tools(mcp):
 Returns:
     Project info with task counts by status, overdue count, and recent activity
         """
+        logger.info(f"get_project_summary: id={project_id}, name={project_name}")
         if not project_id and not project_name:
             return {"error": "Provide either project_id or project_name"}
         
@@ -58,6 +62,7 @@ Returns:
     - recent_files: Last 5 files linked to project
     - contacts: Key people involved
         """
+        logger.info(f"get_project_dashboard: id={project_id}, name={project_name}")
         if not project_id and not project_name:
             return {"error": "Provide either project_id or project_name"}
         

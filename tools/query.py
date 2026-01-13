@@ -2,12 +2,15 @@
 Direct SQL query tool with embedded schema.
 """
 
+import logging
 import psycopg2
 from typing import Literal
 from pydantic import Field
 
 from config import DATABASE_URL, abbrev_type
 from database import execute_query
+
+logger = logging.getLogger("ibhelm.mcp.tools")
 
 
 def _fetch_schema_sync() -> str:
@@ -124,6 +127,8 @@ def register_query_tools(mcp):
         limit: int | None = Field(default=None, description="Override LIMIT in query (max 1000). Applied if query has no LIMIT."),
         full_output: bool = Field(default=False, description="If True, disable truncation (return all rows). Use carefully!")
     ) -> dict:
+        query_preview = query[:80].replace('\n', ' ') + ('...' if len(query) > 80 else '')
+        logger.info(f"query_database: {query_preview}")
         return await execute_query(query, format=format, include_stats=include_stats, 
                                     limit=limit, full_output=full_output)
     

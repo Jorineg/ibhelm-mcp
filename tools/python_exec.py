@@ -3,6 +3,7 @@ Python code execution tool (experimental).
 Allows running Python code with database access in a sandboxed environment.
 """
 
+import logging
 import re
 import signal
 import sys
@@ -16,6 +17,8 @@ from collections import Counter, defaultdict
 from pydantic import Field
 
 from database import get_pool, validate_query
+
+logger = logging.getLogger("ibhelm.mcp.tools")
 
 
 class PythonTimeoutError(Exception):
@@ -81,6 +84,8 @@ Returns:
     - output: Captured print() output
     - error: Error message if failed
         """
+        code_preview = code[:80].replace('\n', ' ') + ('...' if len(code) > 80 else '')
+        logger.info(f"run_python: {code_preview}")
         timeout_seconds = min(max(1, timeout_seconds), 30)
         
         # Pre-execute: scan code for db_query calls and execute them
