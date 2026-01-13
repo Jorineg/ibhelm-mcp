@@ -27,5 +27,5 @@ def setup_betterstack():
         logging.getLogger(name).addHandler(handler)
     
     _betterstack_initialized = True
-    logger.info("Betterstack logging enabled")
+    print("[logging] Betterstack logging enabled")
 
