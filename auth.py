@@ -42,7 +42,7 @@ class IBHelmOAuthProxy(OAuthProxy):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Fix double /mcp/mcp path issue
-        if self._jwt_issuer.audience.endswith('/mcp/mcp'):
+        if self._jwt_issuer and self._jwt_issuer.audience.endswith('/mcp/mcp'):
             from fastmcp.server.auth.jwt_issuer import JWTIssuer
             self._jwt_issuer = JWTIssuer(
                 issuer=self._jwt_issuer.issuer,
