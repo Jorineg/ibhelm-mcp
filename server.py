@@ -44,5 +44,5 @@ setup_betterstack()
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     host = os.environ.get("HOST", "0.0.0.0")
-    logger.info(f"Starting IBHelm MCP Server on {host}:{port}")
+    print(f"Starting IBHelm MCP Server on {host}:{port}")
     mcp.run(transport="http", host=host, port=port)
