@@ -17,6 +17,11 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "http://localhost:8080")
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")
 
+# Logging
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+BETTERSTACK_SOURCE_TOKEN = os.environ.get("BETTERSTACK_SOURCE_TOKEN")
+BETTERSTACK_INGEST_HOST = os.environ.get("BETTERSTACK_INGEST_HOST")
+
 # Validate required env vars
 if not all([OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, DATABASE_URL]):
     raise ValueError("Missing required environment variables: OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, DATABASE_URL")

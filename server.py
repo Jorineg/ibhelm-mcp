@@ -20,6 +20,7 @@ from fastmcp import FastMCP
 
 from auth import create_auth_provider
 from tools import register_all_tools
+from logging_conf import logger
 
 
 # =============================================================================
@@ -43,5 +44,5 @@ register_all_tools(mcp)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     host = os.environ.get("HOST", "0.0.0.0")
-    print(f"Starting IBHelm MCP Server on {host}:{port}")
+    logger.info(f"Starting IBHelm MCP Server on {host}:{port}")
     mcp.run(transport="streamable-http", host=host, port=port)
