@@ -4,6 +4,7 @@ Database utilities for IBHelm MCP Server.
 - Query validation and execution
 - Smart truncation
 - TOON format conversion
+- RLS context management
 """
 
 import logging
@@ -11,6 +12,7 @@ import re
 import time
 import asyncpg
 from typing import Any, Literal
+from contextvars import ContextVar
 
 from config import (
     DATABASE_URL, MAX_RESPONSE_CHARS, MAX_CELL_CHARS, 
@@ -18,6 +20,9 @@ from config import (
 )
 
 logger = logging.getLogger("ibhelm.mcp.database")
+
+# Context variable for current user email (set per-request)
+_current_user_email: ContextVar[str | None] = ContextVar('current_user_email', default=None)
 
 
 # =============================================================================
@@ -34,6 +39,33 @@ async def get_pool() -> asyncpg.Pool:
         _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5, command_timeout=30)
         logger.info("Database pool created (min=1, max=5)")
     return _pool
+
+
+# =============================================================================
+# RLS User Context
+# =============================================================================
+
+def set_user_context(email: str | None):
+    """Set the current user email for RLS policies (call at start of request)."""
+    _current_user_email.set(email)
+    if email:
+        logger.debug(f"User context set: {email}")
+
+
+def get_user_context() -> str | None:
+    """Get the current user email."""
+    return _current_user_email.get()
+
+
+async def _set_rls_context(conn: asyncpg.Connection, user_email: str | None):
+    """Set session variables for RLS policies before executing queries."""
+    if user_email:
+        # Use set_config with is_local=true for transaction-scoped setting
+        await conn.execute(
+            "SELECT set_config('app.user_email', $1, true)",
+            user_email
+        )
+        logger.debug(f"RLS context set for: {user_email}")
 
 
 # =============================================================================
@@ -265,9 +297,14 @@ async def execute_query(
     format: Literal["json", "toon"] = "toon",
     include_stats: bool = False,
     limit: int | None = None,
-    full_output: bool = False
+    full_output: bool = False,
+    user_email: str | None = None
 ) -> dict:
-    """Execute query with smart truncation and TOON format."""
+    """Execute query with smart truncation, TOON format, and RLS context.
+    
+    The user_email is used to set RLS context for email visibility policies.
+    If not provided, falls back to the context variable set via set_user_context().
+    """
     query_preview = query[:100].replace('\n', ' ') + ('...' if len(query) > 100 else '')
     logger.debug(f"Executing query: {query_preview}")
     
@@ -280,10 +317,15 @@ async def execute_query(
     if not full_output and limit and 'LIMIT' not in query.upper():
         query = query.rstrip().rstrip(';') + f" LIMIT {min(limit, 1000)}"
     
+    # Get user email from parameter or context variable
+    effective_email = user_email or get_user_context()
+    
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
             await conn.execute("SET statement_timeout = '30s'")
+            # Set RLS context for email visibility
+            await _set_rls_context(conn, effective_email)
             
             start_time = time.time()
             results = await conn.fetch(query)

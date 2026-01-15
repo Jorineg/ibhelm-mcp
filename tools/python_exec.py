@@ -15,10 +15,29 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, date
 from collections import Counter, defaultdict
 from pydantic import Field
+from mcp.server.fastmcp import Context
 
-from database import get_pool, validate_query
+from database import get_pool, validate_query, set_user_context, _set_rls_context
 
 logger = logging.getLogger("ibhelm.mcp.tools")
+
+
+def _extract_user_email(ctx: Context | None) -> str | None:
+    """Extract user email from MCP context."""
+    if not ctx:
+        return None
+    try:
+        if hasattr(ctx, 'access_token') and ctx.access_token:
+            claims = getattr(ctx.access_token, 'claims', {}) or {}
+            return claims.get('email')
+        if hasattr(ctx, 'request_context') and ctx.request_context:
+            access_token = getattr(ctx.request_context, 'access_token', None)
+            if access_token:
+                claims = getattr(access_token, 'claims', {}) or {}
+                return claims.get('email')
+    except Exception:
+        pass
+    return None
 
 
 class PythonTimeoutError(Exception):
@@ -61,7 +80,8 @@ def register_python_tools(mcp):
     @mcp.tool()
     async def run_python(
         code: str = Field(description="Python code to execute. Last expression value is returned."),
-        timeout_seconds: int = Field(default=10, description="Max execution time (default 10, max 30)")
+        timeout_seconds: int = Field(default=10, description="Max execution time (default 10, max 30)"),
+        ctx: Context = None
     ) -> dict:
         """Execute Python code with database access. EXPERIMENTAL.
 
@@ -84,8 +104,13 @@ Returns:
     - output: Captured print() output
     - error: Error message if failed
         """
+        # Set RLS context from MCP user
+        user_email = _extract_user_email(ctx)
+        if user_email:
+            set_user_context(user_email)
+        
         code_preview = code[:80].replace('\n', ' ') + ('...' if len(code) > 80 else '')
-        logger.info(f"run_python: {code_preview}")
+        logger.info(f"run_python (user={user_email}): {code_preview}")
         timeout_seconds = min(max(1, timeout_seconds), 30)
         
         # Pre-execute: scan code for db_query calls and execute them
@@ -109,6 +134,8 @@ Returns:
             
             async with pool.acquire() as conn:
                 await conn.execute("SET statement_timeout = '10s'")
+                # Set RLS context for email visibility
+                await _set_rls_context(conn, user_email)
                 rows = await conn.fetch(sql)
                 result = []
                 for row in rows:

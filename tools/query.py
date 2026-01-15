@@ -6,9 +6,10 @@ import logging
 import psycopg2
 from typing import Literal
 from pydantic import Field
+from mcp.server.fastmcp import Context
 
 from config import DATABASE_URL, abbrev_type
-from database import execute_query
+from database import execute_query, set_user_context
 
 logger = logging.getLogger("ibhelm.mcp.tools")
 
@@ -125,10 +126,34 @@ def register_query_tools(mcp):
         format: Literal["json", "toon"] = Field(default="toon", description="Output format - 'json' or 'toon' (compact tabular, default)."),
         include_stats: bool = Field(default=False, description="Include column statistics (unique counts, min/max, etc.)"),
         limit: int | None = Field(default=None, description="Override LIMIT in query (max 1000). Applied if query has no LIMIT."),
-        full_output: bool = Field(default=False, description="If True, disable truncation (return all rows). Use carefully!")
+        full_output: bool = Field(default=False, description="If True, disable truncation (return all rows). Use carefully!"),
+        ctx: Context = None
     ) -> dict:
         query_preview = query[:80].replace('\n', ' ') + ('...' if len(query) > 80 else '')
-        logger.info(f"query_database: {query_preview}")
+        
+        # Extract user email from MCP context for RLS
+        user_email = None
+        if ctx:
+            try:
+                # Try to get claims from access token
+                if hasattr(ctx, 'access_token') and ctx.access_token:
+                    claims = getattr(ctx.access_token, 'claims', {}) or {}
+                    user_email = claims.get('email')
+                # Or try request_context
+                elif hasattr(ctx, 'request_context') and ctx.request_context:
+                    access_token = getattr(ctx.request_context, 'access_token', None)
+                    if access_token:
+                        claims = getattr(access_token, 'claims', {}) or {}
+                        user_email = claims.get('email')
+            except Exception as e:
+                logger.debug(f"Could not extract user email from context: {e}")
+        
+        if user_email:
+            set_user_context(user_email)
+            logger.info(f"query_database (user={user_email}): {query_preview}")
+        else:
+            logger.info(f"query_database (no user context): {query_preview}")
+        
         return await execute_query(query, format=format, include_stats=include_stats, 
                                     limit=limit, full_output=full_output)
     

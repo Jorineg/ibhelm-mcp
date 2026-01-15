@@ -4,10 +4,29 @@ Project summary and dashboard tools.
 
 import logging
 from pydantic import Field
+from mcp.server.fastmcp import Context
 
-from database import get_pool, execute_query
+from database import get_pool, execute_query, set_user_context, _set_rls_context
 
 logger = logging.getLogger("ibhelm.mcp.tools")
+
+
+def _extract_user_email(ctx: Context | None) -> str | None:
+    """Extract user email from MCP context."""
+    if not ctx:
+        return None
+    try:
+        if hasattr(ctx, 'access_token') and ctx.access_token:
+            claims = getattr(ctx.access_token, 'claims', {}) or {}
+            return claims.get('email')
+        if hasattr(ctx, 'request_context') and ctx.request_context:
+            access_token = getattr(ctx.request_context, 'access_token', None)
+            if access_token:
+                claims = getattr(access_token, 'claims', {}) or {}
+                return claims.get('email')
+    except Exception:
+        pass
+    return None
 
 
 def register_project_tools(mcp):
@@ -16,14 +35,18 @@ def register_project_tools(mcp):
     @mcp.tool()
     async def get_project_summary(
         project_id: int | None = Field(default=None, description="Project ID (integer)"),
-        project_name: str | None = Field(default=None, description="Project name (case-insensitive partial match)")
+        project_name: str | None = Field(default=None, description="Project name (case-insensitive partial match)"),
+        ctx: Context = None
     ) -> dict:
         """Get project summary with task statistics.
 
 Returns:
     Project info with task counts by status, overdue count, and recent activity
         """
-        logger.info(f"get_project_summary: id={project_id}, name={project_name}")
+        user_email = _extract_user_email(ctx)
+        if user_email:
+            set_user_context(user_email)
+        logger.info(f"get_project_summary (user={user_email}): id={project_id}, name={project_name}")
         if not project_id and not project_name:
             return {"error": "Provide either project_id or project_name"}
         
@@ -50,7 +73,8 @@ Returns:
     @mcp.tool()
     async def get_project_dashboard(
         project_id: int | None = Field(default=None, description="Project ID (integer)"),
-        project_name: str | None = Field(default=None, description="Project name (case-insensitive partial match)")
+        project_name: str | None = Field(default=None, description="Project name (case-insensitive partial match)"),
+        ctx: Context = None
     ) -> dict:
         """Get comprehensive project dashboard with recent activity across all sources.
 
@@ -62,12 +86,17 @@ Returns:
     - recent_files: Last 5 files linked to project
     - contacts: Key people involved
         """
-        logger.info(f"get_project_dashboard: id={project_id}, name={project_name}")
+        user_email = _extract_user_email(ctx)
+        if user_email:
+            set_user_context(user_email)
+        logger.info(f"get_project_dashboard (user={user_email}): id={project_id}, name={project_name}")
         if not project_id and not project_name:
             return {"error": "Provide either project_id or project_name"}
         
         pool = await get_pool()
         async with pool.acquire() as conn:
+            # Set RLS context for email visibility
+            await _set_rls_context(conn, user_email)
             # Find project
             if project_id:
                 proj = await conn.fetchrow("SELECT id, name FROM teamwork.projects WHERE id = $1", project_id)

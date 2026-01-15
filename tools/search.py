@@ -4,10 +4,29 @@ Search convenience tools for emails and tasks.
 
 import logging
 from pydantic import Field
+from mcp.server.fastmcp import Context
 
-from database import execute_query
+from database import execute_query, set_user_context
 
 logger = logging.getLogger("ibhelm.mcp.tools")
+
+
+def _extract_user_email(ctx: Context | None) -> str | None:
+    """Extract user email from MCP context."""
+    if not ctx:
+        return None
+    try:
+        if hasattr(ctx, 'access_token') and ctx.access_token:
+            claims = getattr(ctx.access_token, 'claims', {}) or {}
+            return claims.get('email')
+        if hasattr(ctx, 'request_context') and ctx.request_context:
+            access_token = getattr(ctx.request_context, 'access_token', None)
+            if access_token:
+                claims = getattr(access_token, 'claims', {}) or {}
+                return claims.get('email')
+    except Exception:
+        pass
+    return None
 
 
 def register_search_tools(mcp):
@@ -23,7 +42,8 @@ def register_search_tools(mcp):
         attachment_type: str | None = Field(default=None, description="Filter by attachment type (e.g., 'pdf', 'image', 'xlsx')"),
         label: str | None = Field(default=None, description="Filter by Missive label name"),
         search_text: str | None = Field(default=None, description="Search in subject and body"),
-        limit: int = Field(default=50, description="Maximum results (default 50, max 200)")
+        limit: int = Field(default=50, description="Maximum results (default 50, max 200)"),
+        ctx: Context = None
     ) -> dict:
         """Search email messages with attachment filtering.
 
@@ -34,7 +54,11 @@ Examples:
     - Emails with attachments > 40MB: min_attachment_size=40000000
     - Emails with at least 3 PDFs: min_attachments=3, attachment_type="pdf"
         """
-        logger.info(f"search_emails: subject={subject}, from={from_email}, text={search_text}, limit={limit}")
+        # Set RLS context from MCP user
+        user_email = _extract_user_email(ctx)
+        if user_email:
+            set_user_context(user_email)
+        logger.info(f"search_emails (user={user_email}): subject={subject}, from={from_email}, text={search_text}, limit={limit}")
         limit = min(limit, 200)
         conditions = []
         joins = ["FROM missive.messages m", "LEFT JOIN missive.contacts c ON m.from_contact_id = c.id"]
@@ -84,13 +108,18 @@ Examples:
         search_text: str | None = Field(default=None, description="Search in task name and description"),
         tag: str | None = Field(default=None, description="Filter by tag name"),
         overdue_only: bool = Field(default=False, description="Only show overdue incomplete tasks"),
-        limit: int = Field(default=50, description="Maximum results (default 50, max 200)")
+        limit: int = Field(default=50, description="Maximum results (default 50, max 200)"),
+        ctx: Context = None
     ) -> dict:
         """Search tasks with various filters.
 
 **Index Tips:** Filter by project_id, status, or assignee for best performance.
         """
-        logger.info(f"search_tasks: project={project_name}, status={status}, text={search_text}, limit={limit}")
+        # Set RLS context (tasks are open to all, but set for consistency)
+        user_email = _extract_user_email(ctx)
+        if user_email:
+            set_user_context(user_email)
+        logger.info(f"search_tasks (user={user_email}): project={project_name}, status={status}, text={search_text}, limit={limit}")
         limit = min(limit, 200)
         conditions = []
         joins = ["FROM teamwork.tasks t", "LEFT JOIN teamwork.projects p ON t.project_id = p.id",
