@@ -58,13 +58,17 @@ def get_user_context() -> str | None:
 
 
 async def _set_rls_context(conn: asyncpg.Connection, user_email: str | None):
-    """Set session variables for RLS policies before executing queries."""
+    """Set session variables for RLS policies before executing queries.
+    
+    ALWAYS sets the email (even if empty) to prevent leaking previous user's
+    context from pooled connections. Uses session-scoped (false) setting.
+    """
+    # Always set - empty string clears previous user's context from pooled connection
+    await conn.execute(
+        "SELECT set_config('app.user_email', $1, false)",
+        user_email or ''
+    )
     if user_email:
-        # Use set_config with is_local=true for transaction-scoped setting
-        await conn.execute(
-            "SELECT set_config('app.user_email', $1, true)",
-            user_email
-        )
         logger.debug(f"RLS context set for: {user_email}")
 
 

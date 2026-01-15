@@ -6,10 +6,10 @@ import logging
 import psycopg2
 from typing import Literal
 from pydantic import Field
-from mcp.server.fastmcp import Context
+from mcp.server.auth.middleware.auth_context import get_access_token
 
 from config import DATABASE_URL, abbrev_type
-from database import execute_query, set_user_context
+from database import execute_query
 
 logger = logging.getLogger("ibhelm.mcp.tools")
 
@@ -126,36 +126,23 @@ def register_query_tools(mcp):
         format: Literal["json", "toon"] = Field(default="toon", description="Output format - 'json' or 'toon' (compact tabular, default)."),
         include_stats: bool = Field(default=False, description="Include column statistics (unique counts, min/max, etc.)"),
         limit: int | None = Field(default=None, description="Override LIMIT in query (max 1000). Applied if query has no LIMIT."),
-        full_output: bool = Field(default=False, description="If True, disable truncation (return all rows). Use carefully!"),
-        ctx: Context = None
+        full_output: bool = Field(default=False, description="If True, disable truncation (return all rows). Use carefully!")
     ) -> dict:
         query_preview = query[:80].replace('\n', ' ') + ('...' if len(query) > 80 else '')
         
-        # Extract user email from MCP context for RLS
+        # Extract user email from MCP auth context for RLS
         user_email = None
-        if ctx:
-            try:
-                # Try to get claims from access token
-                if hasattr(ctx, 'access_token') and ctx.access_token:
-                    claims = getattr(ctx.access_token, 'claims', {}) or {}
-                    user_email = claims.get('email')
-                # Or try request_context
-                elif hasattr(ctx, 'request_context') and ctx.request_context:
-                    access_token = getattr(ctx.request_context, 'access_token', None)
-                    if access_token:
-                        claims = getattr(access_token, 'claims', {}) or {}
-                        user_email = claims.get('email')
-            except Exception as e:
-                logger.debug(f"Could not extract user email from context: {e}")
+        try:
+            access_token = get_access_token()
+            if access_token and hasattr(access_token, 'claims'):
+                user_email = access_token.claims.get('email')
+        except Exception as e:
+            logger.debug(f"Could not extract user email from auth context: {e}")
         
-        if user_email:
-            set_user_context(user_email)
-            logger.info(f"query_database (user={user_email}): {query_preview}")
-        else:
-            logger.info(f"query_database (no user context): {query_preview}")
+        logger.info(f"query_database (user={user_email or 'none'}): {query_preview}")
         
         return await execute_query(query, format=format, include_stats=include_stats, 
-                                    limit=limit, full_output=full_output)
+                                    limit=limit, full_output=full_output, user_email=user_email)
     
     query_database.__doc__ = f"""Execute a READ-ONLY SQL query against the IBHelm database.
     
@@ -172,8 +159,9 @@ def register_query_tools(mcp):
 - Complex JOINs (5+ tables), CTEs, subqueries, array_agg all work well
 
 **Views & Functions (query like tables):**
-- `mv_unified_items`: Master view - tasks/emails/files/craft unified (59k+ rows)
+- `unified_items_secure`: Master view - tasks/emails/files/craft unified (59k+ rows)
   Columns: id, type, name, project, status, creator, sort_date, search_text, etc.
+  Note: Emails filtered by user visibility. Use this instead of mv_unified_items.
 - `project_overview`: Projects with counts
 - `search_projects_autocomplete('text')`: Find projects by name
 - `search_persons_autocomplete('text')`: Find people
@@ -183,7 +171,7 @@ def register_query_tools(mcp):
     ```sql
     -- Search EVERYTHING for "Jörg"
     SELECT type, name, project, creator, sort_date 
-    FROM mv_unified_items 
+    FROM unified_items_secure 
     WHERE search_text ILIKE '%Jörg%'
     ORDER BY sort_date DESC LIMIT 20
     

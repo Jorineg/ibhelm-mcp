@@ -172,7 +172,7 @@ Example:
     **tasks**: id int pk, project_id int (→projects.id), name text, status varchar
 
 **Key Views (query these like tables):**
-- `mv_unified_items`: Master view combining tasks, emails, files, craft docs (41 columns)
+- `unified_items_secure`: Master view combining tasks, emails, files, craft docs (emails filtered by user visibility)
 - `project_overview`: Projects with task/file/conversation counts
 - `file_details`, `unified_person_details`, `location_hierarchy`
 
