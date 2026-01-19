@@ -3,7 +3,7 @@ services:
     build: .
     container_name: ibhelm-mcp-server
     restart: unless-stopped
-    runtime: runsc  # gVisor - kernel isolation for Python execution security
+    runtime: runsc-passthrough  # gVisor - kernel isolation for Python execution security
     ports:
       - "127.0.0.1:8080:8080"
     dns:
