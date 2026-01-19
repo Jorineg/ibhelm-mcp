@@ -17,8 +17,9 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "http://localhost:8080")
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")
 
-# Direct bearer tokens for API access (comma-separated, token:client_id format)
-# Example: MCP_BEARER_TOKENS=abc123:ai-agent,xyz789:service-bot
+# Direct bearer tokens for API access (comma-separated)
+# Format: token:client_id:email (email optional, defaults to client_id@api.local)
+# Example: MCP_BEARER_TOKENS=abc123:ai-agent:agent@ibhelm.de,xyz789:service-bot
 MCP_BEARER_TOKENS = os.environ.get("MCP_BEARER_TOKENS", "")
 
 # Logging

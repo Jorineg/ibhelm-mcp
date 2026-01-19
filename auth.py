@@ -18,20 +18,23 @@ from config import (
 logger = logging.getLogger("ibhelm.mcp.auth")
 
 
-def parse_bearer_tokens(tokens_str: str) -> dict[str, str]:
-    """Parse MCP_BEARER_TOKENS env var into {token: client_id} dict.
-    Format: token1:client_id1,token2:client_id2
+def parse_bearer_tokens(tokens_str: str) -> dict[str, dict]:
+    """Parse MCP_BEARER_TOKENS env var into {token: {client_id, email}} dict.
+    Format: token1:client_id1:email1,token2:client_id2:email2
+    Email is optional, defaults to client_id@api.local
     """
     if not tokens_str:
         return {}
     result = {}
     for entry in tokens_str.split(","):
         entry = entry.strip()
-        if ":" in entry:
-            token, client_id = entry.split(":", 1)
-            result[token.strip()] = client_id.strip()
-        elif entry:
-            result[entry] = "api-client"
+        if not entry:
+            continue
+        parts = entry.split(":", 2)
+        token = parts[0].strip()
+        client_id = parts[1].strip() if len(parts) > 1 else "api-client"
+        email = parts[2].strip() if len(parts) > 2 else f"{client_id}@api.local"
+        result[token] = {"client_id": client_id, "email": email}
     return result
 
 
@@ -40,6 +43,7 @@ class HybridTokenVerifier(TokenVerifier):
     
     def __init__(self):
         self.static_tokens = parse_bearer_tokens(MCP_BEARER_TOKENS)
+        self.required_scopes: list[str] = []  # Required by OAuthProxy
         if self.static_tokens:
             logger.info(f"Loaded {len(self.static_tokens)} static bearer token(s)")
     
@@ -49,15 +53,17 @@ class HybridTokenVerifier(TokenVerifier):
         
         # Check static bearer tokens first
         if token in self.static_tokens:
-            client_id = self.static_tokens[token]
-            logger.info(f"Static token verified: client_id={client_id}")
+            info = self.static_tokens[token]
+            client_id = info["client_id"]
+            email = info["email"]
+            logger.info(f"Static token verified: client_id={client_id} email={email}")
             return AccessToken(
                 token=token,
                 client_id=client_id,
                 scopes=['mcp:read'],
                 expires_at=None,
                 resource=f"{MCP_SERVER_URL}/mcp",
-                claims={"client_id": client_id, "type": "bearer"}
+                claims={"client_id": client_id, "email": email, "sub": client_id, "type": "bearer"}
             )
         
         # Fall back to Supabase JWT verification
