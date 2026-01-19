@@ -111,6 +111,16 @@ class IBHelmOAuthProxy(OAuthProxy):
     
     def _get_resource_url(self, path: str | None = None) -> AnyHttpUrl | None:
         return self.base_url
+    
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Override to use HybridTokenVerifier for static bearer tokens + Supabase JWTs."""
+        # Try our custom validator first (handles static tokens + Supabase JWTs)
+        if self._token_verifier:
+            result = await self._token_verifier.verify_token(token)
+            if result:
+                return result
+        # Fall back to parent implementation (FastMCP-issued JWTs)
+        return await super().verify_token(token)
 
 
 def create_auth_provider() -> IBHelmOAuthProxy:
