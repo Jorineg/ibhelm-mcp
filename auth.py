@@ -2,6 +2,7 @@
 Authentication for IBHelm MCP Server.
 - Supabase GoTrue OAuth integration
 - JWT verification for HS256 tokens
+- Static bearer token support for direct API access
 """
 
 import logging
@@ -11,18 +12,55 @@ from fastmcp.server.auth import OAuthProxy, TokenVerifier, AccessToken
 
 from config import (
     SUPABASE_URL, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, 
-    MCP_SERVER_URL, SUPABASE_JWT_SECRET
+    MCP_SERVER_URL, SUPABASE_JWT_SECRET, MCP_BEARER_TOKENS
 )
 
 logger = logging.getLogger("ibhelm.mcp.auth")
 
 
-class SupabaseTokenVerifier(TokenVerifier):
-    """Verify Supabase HS256 tokens."""
+def parse_bearer_tokens(tokens_str: str) -> dict[str, str]:
+    """Parse MCP_BEARER_TOKENS env var into {token: client_id} dict.
+    Format: token1:client_id1,token2:client_id2
+    """
+    if not tokens_str:
+        return {}
+    result = {}
+    for entry in tokens_str.split(","):
+        entry = entry.strip()
+        if ":" in entry:
+            token, client_id = entry.split(":", 1)
+            result[token.strip()] = client_id.strip()
+        elif entry:
+            result[entry] = "api-client"
+    return result
+
+
+class HybridTokenVerifier(TokenVerifier):
+    """Verify both static bearer tokens and Supabase HS256 JWTs."""
+    
+    def __init__(self):
+        self.static_tokens = parse_bearer_tokens(MCP_BEARER_TOKENS)
+        if self.static_tokens:
+            logger.info(f"Loaded {len(self.static_tokens)} static bearer token(s)")
     
     async def verify_token(self, token: str) -> AccessToken | None:
         token_preview = f"{token[:20]}..." if len(token) > 20 else token
         logger.debug(f"Verifying token: {token_preview}")
+        
+        # Check static bearer tokens first
+        if token in self.static_tokens:
+            client_id = self.static_tokens[token]
+            logger.info(f"Static token verified: client_id={client_id}")
+            return AccessToken(
+                token=token,
+                client_id=client_id,
+                scopes=['mcp:read'],
+                expires_at=None,
+                resource=f"{MCP_SERVER_URL}/mcp",
+                claims={"client_id": client_id, "type": "bearer"}
+            )
+        
+        # Fall back to Supabase JWT verification
         try:
             decoded = pyjwt.decode(
                 token, SUPABASE_JWT_SECRET or "", 
@@ -31,7 +69,7 @@ class SupabaseTokenVerifier(TokenVerifier):
             )
             email = decoded.get('email', 'unknown')
             sub = decoded.get('sub', 'unknown')
-            logger.info(f"Token verified: user={email} sub={sub}")
+            logger.info(f"JWT verified: user={email} sub={sub}")
             return AccessToken(
                 token=token, 
                 client_id=decoded.get('sub') or "anon",
@@ -78,7 +116,7 @@ def create_auth_provider() -> IBHelmOAuthProxy:
         upstream_revocation_endpoint=None,
         upstream_client_id=OAUTH_CLIENT_ID,
         upstream_client_secret=OAUTH_CLIENT_SECRET or "placeholder",
-        token_verifier=SupabaseTokenVerifier(),
+        token_verifier=HybridTokenVerifier(),
         base_url=f"{MCP_SERVER_URL}/mcp",
         redirect_path="/auth/callback",
         token_endpoint_auth_method="none",
