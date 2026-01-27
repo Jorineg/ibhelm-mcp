@@ -3,8 +3,10 @@ Authentication for IBHelm MCP Server.
 - Supabase GoTrue OAuth integration
 - JWT verification for HS256 tokens
 - Static bearer token support for direct API access
+- DCR scope auto-assignment for clients that register without scopes
 """
 
+import json
 import logging
 import jwt as pyjwt
 from pydantic import AnyHttpUrl
@@ -16,6 +18,68 @@ from config import (
 )
 
 logger = logging.getLogger("ibhelm.mcp.auth")
+
+# Default scopes to assign when client registers without specifying any
+DEFAULT_DCR_SCOPES = "email profile"
+
+
+class DCRScopeMiddleware:
+    """ASGI middleware to auto-assign default scopes during DCR when none provided.
+    
+    Cursor's MCP client registers without scopes but requests 'email profile' 
+    during authorization. This middleware intercepts registration requests and
+    adds default scopes to prevent invalid_scope errors.
+    """
+    
+    def __init__(self, app):
+        self.app = app
+    
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        
+        # Only intercept POST to /register endpoints
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        
+        if method == "POST" and path.endswith("/register"):
+            # Read the entire body
+            body_parts = []
+            while True:
+                message = await receive()
+                if message["type"] == "http.request":
+                    body_parts.append(message.get("body", b""))
+                    if not message.get("more_body", False):
+                        break
+                elif message["type"] == "http.disconnect":
+                    return
+            
+            body = b"".join(body_parts)
+            
+            # Try to modify the body to add default scopes
+            try:
+                data = json.loads(body) if body else {}
+                if not data.get("scope"):
+                    data["scope"] = DEFAULT_DCR_SCOPES
+                    logger.info(f"DCR: Auto-assigned default scopes: {data['scope']}")
+                    body = json.dumps(data).encode()
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                pass  # Not JSON, let it pass through
+            
+            # Create a new receive that returns the (possibly modified) body
+            body_sent = False
+            async def modified_receive():
+                nonlocal body_sent
+                if not body_sent:
+                    body_sent = True
+                    return {"type": "http.request", "body": body, "more_body": False}
+                # Return disconnect after body is sent
+                return {"type": "http.disconnect"}
+            
+            await self.app(scope, modified_receive, send)
+        else:
+            await self.app(scope, receive, send)
 
 
 def parse_bearer_tokens(tokens_str: str) -> dict[str, dict]:

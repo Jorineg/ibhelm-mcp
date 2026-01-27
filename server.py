@@ -18,7 +18,7 @@ Structure:
 import os
 from fastmcp import FastMCP
 
-from auth import create_auth_provider
+from auth import create_auth_provider, DCRScopeMiddleware
 from tools import register_all_tools
 
 # =============================================================================
@@ -39,10 +39,18 @@ from logging_conf import setup_betterstack, logger
 setup_betterstack()
 
 # =============================================================================
+# ASGI App with DCR scope middleware
+# =============================================================================
+# Wrap with middleware to auto-assign default scopes during DCR (fixes Cursor MCP client)
+app = DCRScopeMiddleware(mcp.http_app())
+
+# =============================================================================
 # Run Server
 # =============================================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     host = os.environ.get("HOST", "0.0.0.0")
     print(f"Starting IBHelm MCP Server on {host}:{port}")
-    mcp.run(transport="http", host=host, port=port)
+    # Use uvicorn directly for the app with middleware
+    import uvicorn
+    uvicorn.run(app, host=host, port=port)
