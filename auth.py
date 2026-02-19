@@ -57,12 +57,22 @@ class DCRScopeMiddleware:
             
             body = b"".join(body_parts)
             
-            # Try to modify the body to add default scopes
+            # Normalize the DCR body to fix client quirks
             try:
                 data = json.loads(body) if body else {}
+                logger.info(f"DCR request: {json.dumps(data, default=str)}")
+                modified = False
                 if not data.get("scope"):
                     data["scope"] = DEFAULT_DCR_SCOPES
                     logger.info(f"DCR: Auto-assigned default scopes: {data['scope']}")
+                    modified = True
+                grant_types = set(data.get("grant_types", []))
+                required_grants = {"authorization_code", "refresh_token"}
+                if grant_types and not required_grants.issubset(grant_types):
+                    data["grant_types"] = list(grant_types | required_grants)
+                    logger.info(f"DCR: Normalized grant_types: {data['grant_types']}")
+                    modified = True
+                if modified:
                     body = json.dumps(data).encode()
             except (json.JSONDecodeError, UnicodeDecodeError):
                 pass  # Not JSON, let it pass through
